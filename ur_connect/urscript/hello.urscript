@@ -1,0 +1,3 @@
+def test():
+  textmsg("Hello world")
+end

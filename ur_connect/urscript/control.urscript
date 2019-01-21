@@ -1,0 +1,79 @@
+# Modified version of the UR modern driver script from ROS
+# https://github.com/ros-industrial/ur_modern_driver/blob/9397f47ac158fe5976719f33101334371bc15d44/src/ur_driver.cpp#L151-L219
+def driverProg():
+  MULT_jointstate = 1000000
+
+  SERVO_IDLE = 0
+  SERVO_RUNNING = 1
+  cmd_servo_state = SERVO_IDLE
+  cmd_servo_q = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  
+  def set_servo_setpoint(q):
+    enter_critical
+    cmd_servo_state = SERVO_RUNNING
+    cmd_servo_q = q
+    exit_critical
+  end
+
+  thread servoThread():
+    state = SERVO_IDLE
+    while True:
+      enter_critical
+      q = cmd_servo_q
+      do_brake = False
+
+      if (state == SERVO_RUNNING) and (cmd_servo_state == SERVO_IDLE):
+        do_brake = True
+      end
+
+      state = cmd_servo_state
+      cmd_servo_state = SERVO_IDLE
+      exit_critical
+
+      if do_brake:
+        stopj(1.0)
+        sync()
+      elif state == SERVO_RUNNING:
+        servoj(q, t=0.06, lookahead_time=0.2, gain=1000)
+      else:
+        sync()
+      end
+    end
+  end
+
+  socket_open("{{CONTROL_IP}}", {{CONTROL_PORT}})
+
+  thread_servo = run servoThread()
+  keepalive = 1
+
+  while keepalive > 0:
+    params_mult = socket_read_binary_integer(6+1)
+    
+    if params_mult[0] > 0:
+      q = [params_mult[1] / MULT_jointstate,
+        params_mult[2] / MULT_jointstate,
+        params_mult[3] / MULT_jointstate,
+        params_mult[4] / MULT_jointstate,
+        params_mult[5] / MULT_jointstate,
+        params_mult[6] / MULT_jointstate]
+
+      keepalive = params_mult[7]
+      set_servo_setpoint(q)
+
+      actual_joint_angles = get_actual_joint_positions()
+      socket_send_int(actual_joint_angles[0] * MULT_jointstate)
+      socket_send_int(actual_joint_angles[1] * MULT_jointstate)
+      socket_send_int(actual_joint_angles[2] * MULT_jointstate)
+      socket_send_int(actual_joint_angles[3] * MULT_jointstate)
+      socket_send_int(actual_joint_angles[4] * MULT_jointstate)
+      socket_send_int(actual_joint_angles[5] * MULT_jointstate)
+      socket_send_byte(13)
+    end
+
+    sync()
+  end
+  
+  sleep(.1)
+  socket_close()
+  kill thread_servo
+end
