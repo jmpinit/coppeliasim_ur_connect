@@ -34,11 +34,22 @@ end
 
 ## Installation
 
-Lua modules are installed in V-REP by putting them in the same directory as the main application
-binary. On macOS that's **/Applications/V-REP_version_and_stuff/vrep.app/Contents/MacOS**.
+The **ur_connect** directory is the Lua module for connecting V-REP to a UR robot. Lua modules are
+installed in V-REP by putting them in the same directory as the main application binary. On macOS
+that's **/Applications/V-REP_version_and_stuff/vrep.app/Contents/MacOS**. Copy the **ur_connect**
+directory there.
 
 The module uses the [BitOp library](http://bitop.luajit.org/) so that will need to be installed too.
-Make sure to compile it for Lua 5.1 because that's the version of Lua used by V-REP.
+Make sure to compile it for Lua 5.1 because that's the version of Lua used by V-REP. To compile
+BitOp do the following (on macOS):
+
+0. Install [Homebrew](https://brew.sh/).
+1. Install Lua 5.1 with `brew install lua@5.1`.
+2. Download [LuaBitOp-1.0.2.zip](http://bitop.luajit.org/download/LuaBitOp-1.0.2.zip) and unzip.
+3. Compile with:
+  a. `gcc -I/usr/local/include/lua5.1 -dynamiclib -single_module -undefined dynamic_lookup -o bit.o bit.c`
+  b. `gcc -shared -fPIC -I/usr/local/include/lua5.1 -llua5.1 -o bit.so bit.o`
+4. Copy the resulting **bit.so** to the aforementioned V-REP directory.
 
 ## Documentation
 
