@@ -40,29 +40,52 @@ function Robot:run_script(script)
   client:close()
 end
 
-function Robot:connect()
-  local ip, info = socket.dns.toip(socket.dns.gethostname())
+function ip_same_subnet(ip, ips)
+  local targetParts = util.string_split(ip, '.')
+  local sameSubnetIps = {}
 
-  for i, ip in ipairs(info.ip) do
-    local server = assert(socket.bind(ip, PORT))
-    server:settimeout(NET_TIMEOUT)
+  for i, otherIp in ipairs(ips) do
+    local inSameSubnet = true
+    local otherParts = util.string_split(otherIp, '.')
 
-    local controlScript = template.render(util.read_file(SCRIPT_CONTROL), {
-      CONTROL_IP = ip,
-      CONTROL_PORT = PORT,
-    })
-    self:run_script(controlScript)
-
-    local client, err = server:accept()
-
-    if not (client == nil and err == 'timeout') then
-      client:settimeout(NET_TIMEOUT)
-      self.robotSocket = client
-      return
+    for j = 1, 3 do
+      if otherParts[j] ~= targetParts[j] then
+        inSameSubnet = false
+      end
     end
 
-    server:close()
+    if inSameSubnet then
+      table.insert(sameSubnetIps, otherIp)
+    end
   end
+
+  return sameSubnetIps
+end
+
+function Robot:connect()
+  local _, info = socket.dns.toip(socket.dns.gethostname())
+
+  local ips = ip_same_subnet(self.ip, info.ip)
+  local ip = ips[1]
+
+  local server = assert(socket.bind(ip, PORT))
+  server:settimeout(NET_TIMEOUT)
+
+  local controlScript = template.render(util.read_file(SCRIPT_CONTROL), {
+    CONTROL_IP = ip,
+    CONTROL_PORT = PORT,
+  })
+  self:run_script(controlScript)
+
+  local client, err = server:accept()
+
+  if not (client == nil and err == 'timeout') then
+    client:settimeout(NET_TIMEOUT)
+    self.robotSocket = client
+    return
+  end
+
+  server:close()
 
   error('Timed out waiting for robot to connect')
 end
@@ -89,6 +112,8 @@ function Robot:servo_to(jointAngles)
     jointAngles = self:get_joint_angles()
   end
 
+  sim.setThreadIsFree(true)
+
   local keepalive = 1
   local values = {
     jointAngles.base,
@@ -111,13 +136,18 @@ function Robot:servo_to(jointAngles)
 
   -- Receive 6 int32 values and a 1 byte delimiter (carriage return)
   local rxData, err = self.robotSocket:receive(6 * 4 + 1)
+  sim.setThreadIsFree(false)
 
   if rxData == nil then
-    error(err)
+    print('Warning: receiving from robot timed out')
+    return
   end
 
   local stateData = util.string_to_bytes(rxData)
-  assert(stateData[6 * 4 + 1] == 13)
+  --assert(stateData[6 * 4 + 1] == 13)
+  if stateData[6 * 4 + 1] ~= 13 then
+    return
+  end
 
   local jointsNow = {
     base = bytes_to_int32(stateData[1], stateData[2], stateData[3], stateData[4]) / MULT_jointstate,

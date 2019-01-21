@@ -118,6 +118,23 @@ function bytes_to_int32(b3, b2, b1, b0)
   return val
 end
 
+-- Adapted from https://stackoverflow.com/questions/1426954/split-string-in-lua
+function string_split(inputstr, sep)
+  if sep == nil then
+    sep = "%s"
+  end
+
+  local t = {};
+  local i = 1
+
+  for str in string.gmatch(inputstr, "([^"..sep.."]+)") do
+    t[i] = str
+    i = i + 1
+  end
+
+  return t
+end
+
 --- @export
 return {
   class = class,
@@ -128,4 +145,5 @@ return {
   int32_to_bytes = int32_to_bytes,
   is_byte = is_byte,
   bytes_to_int32 = bytes_to_int32,
+  string_split = string_split,
 }
