@@ -4,6 +4,7 @@
 
 local socket = require('socket')
 local util = require('ur_connect/util')
+local template = require('ur_connect/template')
 
 local SCRIPT_PORT = 30002 -- The robot executes scripts sent to this port
 local PORT = 9031 -- The port the robot will connect to
@@ -40,13 +41,16 @@ function Robot:run_script(script)
 end
 
 function Robot:connect()
-  controlScript = util.read_file(SCRIPT_CONTROL)
-  self:run_script(controlScript)
+  local ip = socket.dns.toip(socket.dns.gethostname())
 
-  local server = assert(socket.bind('*', PORT))
+  local server = assert(socket.bind(ip, PORT))
   server:settimeout(NET_TIMEOUT)
 
-  local ip, port = server:getsockname()
+  local controlScript = template.render(util.read_file(SCRIPT_CONTROL), {
+    CONTROL_IP = ip,
+    CONTROL_PORT = PORT,
+  })
+  self:run_script(controlScript)
 
   local client, err = server:accept()
 
