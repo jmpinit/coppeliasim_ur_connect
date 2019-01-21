@@ -8,7 +8,7 @@ local template = require('ur_connect/template')
 
 local SCRIPT_PORT = 30002 -- The robot executes scripts sent to this port
 local PORT = 9031 -- The port the robot will connect to
-local NET_TIMEOUT = 3
+local NET_TIMEOUT = 1
 local MULT_jointstate = 1000000
 local SCRIPT_CONTROL = 'ur_connect/urscript/control.urscript'
 
@@ -41,26 +41,30 @@ function Robot:run_script(script)
 end
 
 function Robot:connect()
-  local ip = socket.dns.toip(socket.dns.gethostname())
+  local ip, info = socket.dns.toip(socket.dns.gethostname())
 
-  local server = assert(socket.bind(ip, PORT))
-  server:settimeout(NET_TIMEOUT)
+  for i, ip in ipairs(info.ip) do
+    local server = assert(socket.bind(ip, PORT))
+    server:settimeout(NET_TIMEOUT)
 
-  local controlScript = template.render(util.read_file(SCRIPT_CONTROL), {
-    CONTROL_IP = ip,
-    CONTROL_PORT = PORT,
-  })
-  self:run_script(controlScript)
+    local controlScript = template.render(util.read_file(SCRIPT_CONTROL), {
+      CONTROL_IP = ip,
+      CONTROL_PORT = PORT,
+    })
+    self:run_script(controlScript)
 
-  local client, err = server:accept()
+    local client, err = server:accept()
 
-  if client == nil and err == 'timeout' then
-    error('Timed out waiting for robot to connect')
+    if not (client == nil and err == 'timeout') then
+      client:settimeout(NET_TIMEOUT)
+      self.robotSocket = client
+      return
+    end
+
+    server:close()
   end
 
-  client:settimeout(NET_TIMEOUT)
-
-  self.robotSocket = client
+  error('Timed out waiting for robot to connect')
 end
 
 function Robot:get_joint_angles()
@@ -106,7 +110,13 @@ function Robot:servo_to(jointAngles)
   self.robotSocket:send(util.bytes_to_string(data))
 
   -- Receive 6 int32 values and a 1 byte delimiter (carriage return)
-  local stateData = util.string_to_bytes(self.robotSocket:receive(6 * 4 + 1))
+  local rxData, err = self.robotSocket:receive(6 * 4 + 1)
+
+  if rxData == nil then
+    error(err)
+  end
+
+  local stateData = util.string_to_bytes(rxData)
   assert(stateData[6 * 4 + 1] == 13)
 
   local jointsNow = {
