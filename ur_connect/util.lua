@@ -135,6 +135,10 @@ function string_split(inputstr, sep)
   return t
 end
 
+function string_trim(s)
+  return (s:gsub('^%s*(.-)%s*$', '%1'))
+end
+
 --- @export
 return {
   class = class,
@@ -146,4 +150,5 @@ return {
   is_byte = is_byte,
   bytes_to_int32 = bytes_to_int32,
   string_split = string_split,
+  string_trim = string_trim,
 }

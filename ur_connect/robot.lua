@@ -19,6 +19,7 @@ function Robot:_init(handle, ip)
   self.handle = handle
   self.ip = ip
   self.port = SCRIPT_PORT
+  self.debugMode = false
 end
 
 function Robot:run_script(script)
@@ -62,32 +63,44 @@ function ip_same_subnet(ip, ips)
   return sameSubnetIps
 end
 
+function get_my_ip()
+  local handle = io.popen('/usr/bin/dig +short myip.opendns.com @resolver1.opendns.com')
+  local result = handle:read('*a')
+  handle:close()
+  return util.string_trim(result)
+end
+
 function Robot:connect()
-  local _, info = socket.dns.toip(socket.dns.gethostname())
+  local myIp = get_my_ip()
 
-  local ips = ip_same_subnet(self.ip, info.ip)
-  local ip = ips[1]
-
-  local server = assert(socket.bind(ip, PORT))
+  local server = assert(socket.bind(myIp, PORT))
   server:settimeout(NET_TIMEOUT)
 
+  if self.debugMode then
+    print('Control server running at tcp://' .. myIp .. ':' .. PORT)
+  end
+
   local controlScript = template.render(util.read_file(SCRIPT_CONTROL), {
-    CONTROL_IP = ip,
+    CONTROL_IP = myIp,
     CONTROL_PORT = PORT,
   })
   self:run_script(controlScript)
 
   local client, err = server:accept()
 
-  if not (client == nil and err == 'timeout') then
-    client:settimeout(NET_TIMEOUT)
-    self.robotSocket = client
-    return
+  if client == nil then
+    server:close()
+
+    if err == 'timeout' then
+      error('Timed out waiting for robot to connect')
+    else
+      error('Robot failed to connect: ' .. err)
+    end
   end
 
-  server:close()
-
-  error('Timed out waiting for robot to connect')
+  -- Robot successfully connected back to us
+  client:settimeout(NET_TIMEOUT)
+  self.robotSocket = client
 end
 
 function Robot:get_joint_angles()
