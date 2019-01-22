@@ -120,14 +120,20 @@ end
 -- base, shoulder, elbow, wrist1, wrist2, and wrist3
 -- and tells the robot to servo its joints to match the specified angles.
 -- Defaults to the joint angles of the robot in the V-REP scene if none specified.
-function Robot:servo_to(jointAngles)
+function Robot:servo_to(jointAngles, doMove)
   if jointAngles == nil then
     jointAngles = self:get_joint_angles()
   end
 
   sim.setThreadIsFree(true)
 
-  local keepalive = 1
+  local cmd
+  if doMove then
+    cmd = 1
+  else
+    cmd = 2
+  end
+
   local values = {
     jointAngles.base,
     jointAngles.shoulder,
@@ -135,12 +141,21 @@ function Robot:servo_to(jointAngles)
     jointAngles.wrist1,
     jointAngles.wrist2,
     jointAngles.wrist3,
-    keepalive,
   }
 
+  -- Multiply by large constant to use more of our 32 bits
+  -- On the other side the robot will divide out this constant
+  for i, v in ipairs(values) do
+    values[i] = v * MULT_jointstate
+  end
+
+  -- The command determines how the values will be interpreted
+  table.insert(values, cmd)
+
+  -- Create the message
   local data = {}
   for i, v in ipairs(values) do
-    for j, byte in ipairs(util.int32_to_bytes(v * MULT_jointstate)) do
+    for j, byte in ipairs(util.int32_to_bytes(v)) do
       table.insert(data, byte)
     end
   end
