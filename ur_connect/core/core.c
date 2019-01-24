@@ -8,6 +8,8 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <assert.h>
@@ -56,7 +58,14 @@ void die(const char *msg) {
 }
 
 void *run_server(void *args) {
-  struct sockaddr_in serv_addr = *(struct sockaddr_in*)args;
+  ServerArgs* serverArgs = args;
+
+  struct sockaddr_in serv_addr;
+
+  // Server configuration
+  serv_addr.sin_family = AF_INET; // IPv4
+  serv_addr.sin_port = htons(serverArgs->port); // (host to network byte order)
+  serv_addr.sin_addr.s_addr = inet_addr(serverArgs->ip);
 
   printf("Starting server at %s:%d\n", inet_ntoa(serv_addr.sin_addr), ntohs(serv_addr.sin_port));
 
@@ -150,7 +159,6 @@ void *run_server(void *args) {
       write(clientSockFd, buffer, sizeof(buffer));
 
       // Read a message from the client
-      /*
       const int replyLength = sizeof(buffer) - sizeof(int) + 1;
       int messageLength = read(clientSockFd, buffer, replyLength);
 
@@ -170,7 +178,6 @@ void *run_server(void *args) {
           haveSensedPose = true;
         }
       }
-      */
 
       if (activeCommand == 1) {
         // Inactive mode
@@ -189,12 +196,13 @@ server_exit_no_client:
   printf("Server shut down\n");
 #endif
 
-  free(args);
+  free(serverArgs->ip);
+  free(serverArgs);
 
   return NULL;
 }
 
-static int ur_connect_native_start_server(lua_State *L) {
+static int ur_connect_core_start_server(lua_State *L) {
   if (!lua_isstring(L, 1)) {
     luaL_typerror(L, 1, "string");
     return 1;
@@ -207,17 +215,16 @@ static int ur_connect_native_start_server(lua_State *L) {
 
   serverRunning = true;
 
-  struct sockaddr_in* serv_addr = calloc(1, sizeof(struct sockaddr_in));
-
   int port = lua_tonumber(L, 2);
   const char* ipAddress = lua_tostring(L, 1);
+  lua_pop(L, 2);
 
-  // Server configuration
-  serv_addr->sin_family = AF_INET; // IPv4
-  serv_addr->sin_port = htons(port); // (host to network byte order)
-  serv_addr->sin_addr.s_addr = inet_addr(ipAddress);
+  ServerArgs *serverArgs = malloc(sizeof *serverArgs);
+  serverArgs->ip = calloc(1, strlen(ipAddress) + 1);
+  serverArgs->port = port;
+  strcpy(serverArgs->ip, ipAddress);
 
-  if (pthread_create(&threadServer, NULL, run_server, serv_addr)) {
+  if (pthread_create(&threadServer, NULL, run_server, serverArgs)) {
     lua_pushstring(L, "Unable to start server thread");
     lua_error(L);
     return 1;
@@ -226,31 +233,33 @@ static int ur_connect_native_start_server(lua_State *L) {
   return 1;
 }
 
-static int ur_connect_native_stop_server(lua_State *L) {
+static int ur_connect_core_stop_server(lua_State *L) {
   if (!serverRunning) {
     return 1;
   }
+
+#ifdef DEBUG
+  printf("Stopping server\n");
+#endif
 
   serverRunning = false;
   pthread_join(threadServer, NULL);
   return 1;
 }
 
-static int ur_connect_native_set_command(lua_State *L) {
+static int ur_connect_core_set_command(lua_State *L) {
   if (!lua_isnumber(L, 1)) {
     luaL_typerror(L, 1, "number");
     return 1;
   }
 
   activeCommand = lua_tonumber(L, 1);
+  lua_pop(L, 1);
 
   return 1;
 }
 
-static int ur_connect_native_get_pose(lua_State *L) {
-    lua_pushnil(L);
-    return 1;
-    /*
+static int ur_connect_core_get_pose(lua_State *L) {
   if (!haveSensedPose) {
     // No value to report yet
     lua_pushnil(L);
@@ -269,7 +278,7 @@ static int ur_connect_native_get_pose(lua_State *L) {
   pthread_mutex_unlock(&lockSensePose);
 
   // Create a new table to hold the pose values
-  lua_createtable(L, 6, 0);
+  lua_createtable(L, 0, 6);
 
   for (int i = 0; i < 6; i++) {
     lua_pushnumber(L, i + 1); // key
@@ -278,10 +287,9 @@ static int ur_connect_native_get_pose(lua_State *L) {
   }
 
   return 1;
-  */
 }
 
-static int ur_connect_native_update_pose(lua_State *L) {
+static int ur_connect_core_update_pose(lua_State *L) {
   if (!lua_istable(L, 1)) {
     luaL_typerror(L, 1, "table");
   }
@@ -294,11 +302,14 @@ static int ur_connect_native_update_pose(lua_State *L) {
   float values[6] = {0};
 
   for (int i = 0; i < 6; i++) {
-    lua_pushnumber(L, i + 1);
-    lua_gettable(L, 1);
+    lua_pushnumber(L, i + 1); // key
+    lua_gettable(L, 1); // pops key, pushes value
     values[i] = lua_tonumber(L, 2);
-    lua_pop(L, 1);
+    lua_pop(L, 1); // pop value
   }
+
+  // pop table
+  lua_pop(L, 1);
 
   pthread_mutex_lock(&lockCurrentPose);
   currentPose.base = values[0] * MULT_JOINTSTATE;
@@ -309,22 +320,87 @@ static int ur_connect_native_update_pose(lua_State *L) {
   currentPose.wrist3 = values[5] * MULT_JOINTSTATE;
   pthread_mutex_unlock(&lockCurrentPose);
 
-  lua_pushboolean(L, 1);
+  return 1;
+}
+
+static int ur_connect_core_get_assigned_ips(lua_State *L) {
+  int fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+  struct ifreq ifr;
+  ifr.ifr_addr.sa_family = AF_INET;
+  strncpy(ifr.ifr_name, "en0", IFNAMSIZ - 1);
+
+  ioctl(fd, SIOCGIFADDR, &ifr);
+
+  close(fd);
+
+  const char* ipAddr = inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr);
+  lua_pushstring(L, ipAddr);
 
   return 1;
 }
 
 static const struct luaL_Reg ur_connect_core_funcs[] = {
-  { "start_server", ur_connect_native_start_server },
-  { "stop_server", ur_connect_native_stop_server },
-  { "get_pose", ur_connect_native_get_pose },
-  { "set_command", ur_connect_native_set_command },
-  { "update_pose", ur_connect_native_update_pose },
+  { "start_server", ur_connect_core_start_server },
+  { "stop_server", ur_connect_core_stop_server },
+  { "get_pose", ur_connect_core_get_pose },
+  { "set_command", ur_connect_core_set_command },
+  { "update_pose", ur_connect_core_update_pose },
+  { "get_assigned_ips", ur_connect_core_get_assigned_ips },
   { NULL, NULL },
 };
 
+static int hook_gc(lua_State *L) {
+  printf("GC hook\n");
+  serverRunning = false;
+  pthread_join(threadServer, NULL);
+  return 0;
+}
+
+static void stackDump(lua_State *L) {
+  int i;
+  int top = lua_gettop(L);
+  for (i = 1; i <= top; i++) { /* repeat for each level */
+    int t = lua_type(L, i);
+    switch (t) {
+      case LUA_TSTRING: /* strings */
+        printf("\"%s\"", lua_tostring(L, i));
+        break;
+
+      case LUA_TBOOLEAN: /* booleans */
+        printf(lua_toboolean(L, i) ? "true" : "false");
+        break;
+
+      case LUA_TNUMBER: /* numbers */
+        printf("%g", lua_tonumber(L, i));
+        break;
+
+      default: /* other values */
+        printf("%s", lua_typename(L, t));
+        break;
+    }
+    printf("  "); /* put a separator */
+  }
+  printf("\n"); /* end the listing */
+}
+
 LUALIB_API int luaopen_ur_connect_core(lua_State *L) {
-  luaL_register(L, "ur_connect_core", ur_connect_core_funcs);
+  luaL_register(L, "ur_connect_core", ur_connect_core_funcs); // pushes new table with lib functions
+
+  lua_pushstring(L, "gc_hook");
+  lua_newuserdata(L, 1);
+
+  luaL_newmetatable(L, "gc_hook_meta"); // pushes new table
+  lua_pushstring(L, "__gc");
+  lua_pushcfunction(L, hook_gc);
+  lua_settable(L, -3); // Sets __gc for metatable. Pops key and value off stack
+  lua_setmetatable(L, -2); // Sets metatable for userdata on stack. Pops table from the stack
+
+  // Sets gc_hook key to userdata value on library table
+  lua_settable(L, -3); // pops key and value off stack
+
+  printf("Configured GC hook\n");
+  stackDump(L);
 
   return 1;
 }

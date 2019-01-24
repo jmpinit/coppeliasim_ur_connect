@@ -74,10 +74,7 @@ function ip_same_subnet(ip, ips)
 end
 
 function get_my_ip()
-  local handle = io.popen('/usr/bin/dig +short myip.opendns.com @resolver1.opendns.com')
-  local result = handle:read('*a')
-  handle:close()
-  return util.string_trim(result)
+  return server.get_assigned_ips()
 end
 
 function Robot:connect()
@@ -163,9 +160,6 @@ function Robot:servo_to(jointAngles, doMove)
 
   local sensedPose = server.get_pose()
 
-  print(sensedPose)
-
-  --[[
   if sensedPose ~= nil then
     self.lastKnownJointState.base = sensedPose[1]
     self.lastKnownJointState.shoulder = sensedPose[2]
@@ -176,7 +170,6 @@ function Robot:servo_to(jointAngles, doMove)
   end
 
   self:update_ghost()
-  --]]
 end
 
 function Robot:disconnect()
