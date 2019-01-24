@@ -5,6 +5,7 @@
 local socket = require('socket')
 local util = require('ur_connect/util')
 local template = require('ur_connect/template')
+local server = require('ur_connect.core')
 
 local SCRIPT_PORT = 30002 -- The robot executes scripts sent to this port
 local PORT = 9031 -- The port the robot will connect to
@@ -19,7 +20,16 @@ function Robot:_init(handle, ip)
   self.handle = handle
   self.ip = ip
   self.port = SCRIPT_PORT
-  self.debugMode = false
+  self.lastKnownJointState = {
+    base = 0,
+    shoulder = 0,
+    elbow = 0,
+    wrist1 = 0,
+    wrist2 = 0,
+    wrist3 = 0,
+  }
+  self.debugMode = true
+  self.connected = false
 end
 
 function Robot:run_script(script)
@@ -73,8 +83,7 @@ end
 function Robot:connect()
   local myIp = get_my_ip()
 
-  local server = assert(socket.bind(myIp, PORT))
-  server:settimeout(NET_TIMEOUT)
+  server.start_server(myIp, PORT)
 
   if self.debugMode then
     print('Control server running at tcp://' .. myIp .. ':' .. PORT)
@@ -84,23 +93,14 @@ function Robot:connect()
     CONTROL_IP = myIp,
     CONTROL_PORT = PORT,
   })
+  print('Instructing the robot to connect to ' .. myIp .. ':' .. PORT)
   self:run_script(controlScript)
 
-  local client, err = server:accept()
+  self.connected = true
 
-  if client == nil then
-    server:close()
-
-    if err == 'timeout' then
-      error('Timed out waiting for robot to connect')
-    else
-      error('Robot failed to connect: ' .. err)
-    end
+  if self.ghostHandle == nil then
+    self.ghostHandle = util.make_ghost_model(self.handle)
   end
-
-  -- Robot successfully connected back to us
-  client:settimeout(NET_TIMEOUT)
-  self.robotSocket = client
 end
 
 function Robot:get_joint_angles()
@@ -116,25 +116,35 @@ function Robot:get_joint_angles()
   }
 end
 
+function Robot:update_ghost()
+  if self.ghostHandle == nil or self.lastKnownJointState == nil then
+    return
+  end
+
+  local ghostJoints = sim.getObjectsInTree(self.ghostHandle, sim.object_joint_type)
+
+  sim.setJointPosition(ghostJoints[1], self.lastKnownJointState.base)
+  sim.setJointPosition(ghostJoints[2], self.lastKnownJointState.shoulder)
+  sim.setJointPosition(ghostJoints[3], self.lastKnownJointState.elbow)
+  sim.setJointPosition(ghostJoints[4], self.lastKnownJointState.wrist1)
+  sim.setJointPosition(ghostJoints[5], self.lastKnownJointState.wrist2)
+  sim.setJointPosition(ghostJoints[6], self.lastKnownJointState.wrist3)
+end
+
 -- Takes a hash table with angles in radians for keys
 -- base, shoulder, elbow, wrist1, wrist2, and wrist3
 -- and tells the robot to servo its joints to match the specified angles.
 -- Defaults to the joint angles of the robot in the V-REP scene if none specified.
 function Robot:servo_to(jointAngles, doMove)
+  if not self.connected then
+    return
+  end
+
   if jointAngles == nil then
     jointAngles = self:get_joint_angles()
   end
 
-  sim.setThreadIsFree(true)
-
-  local cmd
-  if doMove then
-    cmd = 1
-  else
-    cmd = 2
-  end
-
-  local values = {
+  local pose = {
     jointAngles.base,
     jointAngles.shoulder,
     jointAngles.elbow,
@@ -143,52 +153,40 @@ function Robot:servo_to(jointAngles, doMove)
     jointAngles.wrist3,
   }
 
-  -- Multiply by large constant to use more of our 32 bits
-  -- On the other side the robot will divide out this constant
-  for i, v in ipairs(values) do
-    values[i] = v * MULT_jointstate
+  server.update_pose(pose)
+
+  if doMove then
+    server.set_command(1)
+  else
+    server.set_command(2)
   end
 
-  -- The command determines how the values will be interpreted
-  table.insert(values, cmd)
+  local sensedPose = server.get_pose()
 
-  -- Create the message
-  local data = {}
-  for i, v in ipairs(values) do
-    for j, byte in ipairs(util.int32_to_bytes(v)) do
-      table.insert(data, byte)
-    end
+  print(sensedPose)
+
+  --[[
+  if sensedPose ~= nil then
+    self.lastKnownJointState.base = sensedPose[1]
+    self.lastKnownJointState.shoulder = sensedPose[2]
+    self.lastKnownJointState.elbow = sensedPose[3]
+    self.lastKnownJointState.wrist1 = sensedPose[4]
+    self.lastKnownJointState.wrist2 = sensedPose[5]
+    self.lastKnownJointState.wrist3 = sensedPose[6]
   end
 
-  self.robotSocket:send(util.bytes_to_string(data))
-
-  -- Receive 6 int32 values and a 1 byte delimiter (carriage return)
-  local rxData, err = self.robotSocket:receive(6 * 4 + 1)
-  sim.setThreadIsFree(false)
-
-  if rxData == nil then
-    print('Warning: receiving from robot timed out')
-    return
-  end
-
-  local stateData = util.string_to_bytes(rxData)
-  --assert(stateData[6 * 4 + 1] == 13)
-  if stateData[6 * 4 + 1] ~= 13 then
-    return
-  end
-
-  local jointsNow = {
-    base = bytes_to_int32(stateData[1], stateData[2], stateData[3], stateData[4]) / MULT_jointstate,
-    shoulder = bytes_to_int32(stateData[5], stateData[6], stateData[7], stateData[8]) / MULT_jointstate,
-    elbow = bytes_to_int32(stateData[9], stateData[10], stateData[11], stateData[12]) / MULT_jointstate,
-    wrist1 = bytes_to_int32(stateData[13], stateData[14], stateData[15], stateData[16]) / MULT_jointstate,
-    wrist2 = bytes_to_int32(stateData[17], stateData[18], stateData[19], stateData[20]) / MULT_jointstate,
-    wrist3 = bytes_to_int32(stateData[21], stateData[22], stateData[23], stateData[24]) / MULT_jointstate,
-  }
+  self:update_ghost()
+  --]]
 end
 
 function Robot:disconnect()
-  self.robotSocket:close()
+  if self.connected then
+    return
+  end
+
+  server.stop_server()
+
+  self.connected = false
 end
 
 return Robot

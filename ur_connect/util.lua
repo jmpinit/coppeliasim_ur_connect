@@ -139,6 +139,67 @@ function string_trim(s)
   return (s:gsub('^%s*(.-)%s*$', '%1'))
 end
 
+function value_or_error(valueOrErrorCode, msg)
+  if msg == nil then
+    msg = 'Unknown error'
+  end
+
+  if valueOrErrorCode == -1 then
+    error(msg)
+  else
+    return valueOrErrorCode
+  end
+end
+
+function set_color(object, r, g, b, a)
+  sim.setShapeColor(object, nil, sim.colorcomponent_ambient_diffuse, { r, g, b })
+  sim.setShapeColor(object, nil, sim.colorcomponent_emission, { r, g, b })
+  sim.setShapeColor(object, nil, sim.colorcomponent_specular, { r, g, b })
+  sim.setShapeColor(object, nil, sim.colorcomponent_transparency, { a })
+end
+
+function make_ghost_model(modelBaseHandle)
+  local ghostModelProperties = sim.modelproperty_not_collidable
+    + sim.modelproperty_not_measurable
+    + sim.modelproperty_not_renderable
+    + sim.modelproperty_not_detectable
+    + sim.modelproperty_not_cuttable
+    + sim.modelproperty_not_dynamic
+    + sim.modelproperty_not_respondable
+    + sim.modelproperty_scripts_inactive
+
+  local copiedModel = sim.copyPasteObjects({ modelBaseHandle }, 1)[1]
+  value_or_error(sim.setModelProperty(copiedModel, ghostModelProperties))
+
+  local objectsInModel = sim.getObjectsInTree(copiedModel)
+  for i, object in ipairs(objectsInModel) do
+    value_or_error(sim.setModelProperty(object, ghostModelProperties))
+
+    local modelName = string.sub(sim.getObjectName(object), 0, -3) -- remove "#0"
+    local ghostName =  modelName .. '_ghost'
+    sim.setObjectName(object, ghostName)
+
+    local objType = sim.getObjectType(object)
+
+    -- Remove any scripts from the original object that might act on the ghost
+    local script = sim.getScriptAssociatedWithObject(object)
+    if script ~= -1 and script ~= nil then
+      sim.removeScript(script)
+    end
+
+    if objType == sim.object_shape_type then
+      set_color(object, 1, 1, 1, 0.3)
+    elseif objType == sim.object_joint_type then
+      -- Set the joint mode to passive so that it will maintain a pose it is set to
+      sim.setJointMode(object, sim.jointmode_passive, 0)
+    elseif objType == sim.object_dummy_type then
+      sim.removeObject(object)
+    end
+  end
+
+  return copiedModel
+end
+
 --- @export
 return {
   class = class,
@@ -151,4 +212,5 @@ return {
   bytes_to_int32 = bytes_to_int32,
   string_split = string_split,
   string_trim = string_trim,
+  make_ghost_model = make_ghost_model,
 }
