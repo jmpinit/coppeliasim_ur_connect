@@ -94,7 +94,7 @@ end
 --- Check if a value is in the range of a byte.
 -- @return True if value is a byte.
 function is_byte(v)
-  if not type(v) == 'number' then
+  if v == nil or not type(v) == 'number' then
     -- Must be a number to be able to be a byte
     return false
   end
@@ -137,6 +137,28 @@ end
 
 function string_trim(s)
   return (s:gsub('^%s*(.-)%s*$', '%1'))
+end
+
+function is_valid_ip_address(ipText)
+  if ipText == nil then
+    return false
+  end
+
+  local ipParts = string_split(ipText, '.')
+  
+  -- Check length
+  if #ipParts ~= 4 then
+    return false
+  end
+
+  -- Check values express bytes
+  for i, v in ipairs(ipParts) do
+    if not is_byte(tonumber(v)) then
+      return false
+    end
+  end
+
+  return true
 end
 
 function value_or_error(valueOrErrorCode, msg)
@@ -212,5 +234,6 @@ return {
   bytes_to_int32 = bytes_to_int32,
   string_split = string_split,
   string_trim = string_trim,
+  is_valid_ip_address = is_valid_ip_address,
   make_ghost_model = make_ghost_model,
 }

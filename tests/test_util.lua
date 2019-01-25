@@ -90,4 +90,10 @@ return function()
     test(str == testStr, 'bytes_to_string')
   end
   _()
+
+  -- is_valid_ip_address
+  test(util.is_valid_ip_address('128.231.57.5'), 'is_valid_ip_address returns true for valid IP')
+  test(util.is_valid_ip_address('0.0.0.0'), 'is_valid_ip_address returns true for valid IP address (zeros)')
+  test(not util.is_valid_ip_address('random bad'), 'is_valid_ip_address returns false for misc text')
+  test(not util.is_valid_ip_address('128.5.1'), 'is_valid_ip_address returns false for IP address with too few values')
 end
