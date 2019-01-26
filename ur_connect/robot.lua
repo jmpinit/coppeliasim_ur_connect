@@ -37,7 +37,9 @@ function Robot:host_up()
   client:settimeout(NET_TIMEOUT)
   local success = client:connect(self.ip, self.port)
 
-  if not success then
+  print('Connecting to ' .. self.ip .. ':' .. self.port)
+
+  if success == nil then
     return false
   else
     client:close()
@@ -113,8 +115,12 @@ function Robot:connect()
 
   self.connected = true
 
-  if self.ghostHandle == nil then
+  local existingGhostHandle = sim.getObjectHandle(sim.getObjectName(self.handle) .. '_ghost@silentError')
+
+  if existingGhostHandle == -1 then
     self.ghostHandle = util.make_ghost_model(self.handle)
+  else
+    self.ghostHandle = existingGhostHandle
   end
 end
 
@@ -176,22 +182,22 @@ function Robot:servo_to(jointAngles, doMove)
     server.set_command(2)
   end
 
-  local sensedPose = server.get_pose()
+  local base, shoulder, elbow, wrist1, wrist2, wrist3 = server.get_pose()
 
-  if sensedPose ~= nil then
-    self.lastKnownJointState.base = sensedPose[1]
-    self.lastKnownJointState.shoulder = sensedPose[2]
-    self.lastKnownJointState.elbow = sensedPose[3]
-    self.lastKnownJointState.wrist1 = sensedPose[4]
-    self.lastKnownJointState.wrist2 = sensedPose[5]
-    self.lastKnownJointState.wrist3 = sensedPose[6]
+  if base ~= nil then
+    self.lastKnownJointState.base = base
+    self.lastKnownJointState.shoulder = shoulder
+    self.lastKnownJointState.elbow = elbow
+    self.lastKnownJointState.wrist1 = wrist1
+    self.lastKnownJointState.wrist2 = wrist2
+    self.lastKnownJointState.wrist3 = wrist3
+
+    self:update_ghost()
   end
-
-  self:update_ghost()
 end
 
 function Robot:disconnect()
-  if self.connected then
+  if not self.connected then
     return
   end
 

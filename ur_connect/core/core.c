@@ -212,12 +212,12 @@ server_exit_no_client:
 static int ur_connect_core_start_server(lua_State *L) {
   if (!lua_isstring(L, 1)) {
     luaL_typerror(L, 1, "string");
-    return 1;
+    return 0;
   }
 
   if (!lua_isnumber(L, 2)) {
     luaL_typerror(L, 2, "number");
-    return 1;
+    return 0;
   }
 
   serverRunning = true;
@@ -234,10 +234,10 @@ static int ur_connect_core_start_server(lua_State *L) {
   if (pthread_create(&threadServer, NULL, run_server, serverArgs)) {
     lua_pushstring(L, "Unable to start server thread");
     lua_error(L);
-    return 1;
+    return 0;
   }
 
-  return 1;
+  return 0;
 }
 
 static int ur_connect_core_stop_server(lua_State *L) {
@@ -249,9 +249,10 @@ static int ur_connect_core_stop_server(lua_State *L) {
   printf("Stopping server\n");
 #endif
 
+  haveSensedPose = false;
   serverRunning = false;
   pthread_join(threadServer, NULL);
-  return 1;
+  return 0;
 }
 
 static int ur_connect_core_set_command(lua_State *L) {
@@ -263,7 +264,7 @@ static int ur_connect_core_set_command(lua_State *L) {
   activeCommand = lua_tonumber(L, 1);
   lua_pop(L, 1);
 
-  return 1;
+  return 0;
 }
 
 static int ur_connect_core_get_pose(lua_State *L) {
@@ -284,38 +285,45 @@ static int ur_connect_core_get_pose(lua_State *L) {
   };
   pthread_mutex_unlock(&lockSensePose);
 
+  /*
   // Create a new table to hold the pose values
-  lua_createtable(L, 0, 6);
+  lua_createtable(L, 6, 0);
 
   for (int i = 0; i < 6; i++) {
-    lua_pushnumber(L, i + 1); // key
-    lua_pushnumber(L, values[i]); // value
-    lua_settable(L, -3);
+    lua_pushnumber(L, i + 1); // Key
+    lua_pushnumber(L, values[i]); // Value
+    lua_settable(L, -3); // Pops key and value off of stack
+  }
+  */
+  for (int i = 0; i < 6; i++) {
+    lua_pushnumber(L, values[i]); // Value
   }
 
-  return 1;
+  return 6;
 }
 
 static int ur_connect_core_update_pose(lua_State *L) {
   if (!lua_istable(L, 1)) {
     luaL_typerror(L, 1, "table");
+    return 0;
   }
 
   if (lua_objlen(L, 1) != 6) {
     lua_pushstring(L, "Expected 6 values");
     lua_error(L);
+    return 0;
   }
 
   float values[6] = {0};
 
   for (int i = 0; i < 6; i++) {
-    lua_pushnumber(L, i + 1); // key
-    lua_gettable(L, 1); // pops key, pushes value
+    lua_pushnumber(L, i + 1); // Key
+    lua_gettable(L, 1); // Pops key, pushes value
     values[i] = lua_tonumber(L, 2);
-    lua_pop(L, 1); // pop value
+    lua_pop(L, 1); // Pop value
   }
 
-  // pop table
+  // Pop table
   lua_pop(L, 1);
 
   pthread_mutex_lock(&lockCurrentPose);
@@ -327,7 +335,7 @@ static int ur_connect_core_update_pose(lua_State *L) {
   currentPose.wrist3 = values[5] * MULT_JOINTSTATE;
   pthread_mutex_unlock(&lockCurrentPose);
 
-  return 1;
+  return 0;
 }
 
 static int ur_connect_core_get_assigned_ips(lua_State *L) {
