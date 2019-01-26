@@ -5,12 +5,40 @@ local util = require('ur_connect/util')
 
 local MULT_JOINTSTATE = 1000000
 local NET_TIMEOUT = 3
+local SCRIPT_PORT = 30002
 
 function die(msg)
   error(msg)
 end
 
+function receive_script()
+  local server = socket.tcp()
+  local success, message = server:bind('127.0.0.1', SCRIPT_PORT)
+
+  if not success then
+    error(message)
+  end
+
+  server:listen()
+
+  while true do
+    local client = server:accept()
+    print('Client connected')
+
+    local script = client:receive('*a')
+    print(script)
+
+    if script ~= nil and #script > 0 then
+      client:close()
+      server:close()
+      return
+    end
+  end
+end
+
 function emulate_robot(ip, port)
+  receive_script()
+
   local client = socket.tcp()
   client:settimeout(NET_TIMEOUT)
   local res, errmsg = client:connect(ip, port)
@@ -23,7 +51,7 @@ function emulate_robot(ip, port)
     local dataStr = client:receive(7 * 4)
 
     if dataStr == nil then
-      error('Disconnected')
+      return
     end
 
     local data = util.string_to_bytes(dataStr)
@@ -68,7 +96,9 @@ function main()
     die('Usage: ur_emu.lua <address> <port>')
   end
 
-  emulate_robot(ip, port)
+  while true do
+    emulate_robot(ip, port)
+  end
 end
 
 main()
