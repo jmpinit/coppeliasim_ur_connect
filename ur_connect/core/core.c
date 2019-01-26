@@ -1,6 +1,7 @@
 #define LUA_LIB
 
 #include <stdlib.h>
+#include <stdint.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <stdbool.h>
@@ -133,7 +134,7 @@ void *run_server(void *args) {
     assert(sizeof(int) == 4); // Robot expects 32 bit ints
 
     const int msgLen = 7;
-    int buffer[msgLen] = { 0 };
+    int32_t buffer[msgLen] = { 0 };
 
     while (true) {
       if (!serverRunning) {
@@ -189,6 +190,12 @@ void *run_server(void *args) {
   }
 
 server_exit:
+  // Write one last message that tells the robot to stop and exit the control script
+  {
+    int32_t poisonPill[7] = {0};
+    write(clientSockFd, poisonPill, sizeof(poisonPill));
+  }
+
   close(clientSockFd);
 server_exit_no_client:
   close(sockfd);

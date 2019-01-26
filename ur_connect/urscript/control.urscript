@@ -84,6 +84,10 @@ def driverProg():
 
     sync()
   end
+
+  # In case exit is happening because of an emergency,
+  # bring the robot to a stop
+  stopj(2)
   
   sleep(.1)
   socket_close()
