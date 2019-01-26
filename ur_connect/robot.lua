@@ -32,6 +32,19 @@ function Robot:_init(handle, ip)
   self.connected = false
 end
 
+function Robot:host_up()
+  local client = socket.tcp()
+  client:settimeout(NET_TIMEOUT)
+  local success = client:connect(self.ip, self.port)
+
+  if not success then
+    return false
+  else
+    client:close()
+    return true
+  end
+end
+
 function Robot:run_script(script)
   if script == nil then
     error('Script is empty')
@@ -39,9 +52,9 @@ function Robot:run_script(script)
 
   local client = socket.tcp()
   client:settimeout(NET_TIMEOUT)
-  client:connect(self.ip, self.port)
+  local success = client:connect(self.ip, self.port)
 
-  if client == nil then
+  if not success then
     error('Failed to open connection')
     return
   end
@@ -78,8 +91,13 @@ function get_my_ip()
 end
 
 function Robot:connect()
-  local myIp = get_my_ip()
+  if not self:host_up() then
+    error('Robot not online at specified address')
+  else
+    print('Host is up!')
+  end
 
+  local myIp = get_my_ip()
   server.start_server(myIp, PORT)
 
   if self.debugMode then
