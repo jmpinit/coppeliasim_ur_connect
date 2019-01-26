@@ -5,7 +5,7 @@ LUA_CFLAGS=`pkg-config lua5.1 --cflags`
 LDFLAGS=`pkg-config lua5.1 --libs`
 INCLUDES=$(LUA_CFLAGS)
 
-CCOPT= -O2 -fomit-frame-pointer
+CCOPT= -fomit-frame-pointer
 CCWARN= -Wall
 SOCFLAGS= -g -fPIC $(CCOPT) $(CCWARN) $(INCLUDES) $(CFLAGS)
 SOLDFLAGS= -fPIC $(LDFLAGS)
