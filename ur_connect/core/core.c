@@ -78,6 +78,14 @@ void *run_server(void *args) {
     return NULL;
   }
 
+  // Reuse address if necessary
+  int enable = 1;
+  if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
+#ifdef DEBUG
+    perror("setsockopt(SO_REUSEADDR) failed");
+#endif
+  }
+
   // Bind the address for the server
   if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
 #ifdef DEBUG
