@@ -222,6 +222,31 @@ function make_ghost_model(modelBaseHandle)
   return copiedModel
 end
 
+--- Load a string saved to the app session associated with a string key
+function session_load_string(key)
+  local stringData = sim.readCustomDataBlock(sim.handle_app, key)
+
+  if stringData == nil then
+    -- Found no saved data
+    return nil
+  end
+
+  local stringBytes = sim.unpackUInt8Table(stringData)
+  
+  local str = ''
+  for i, byte in ipairs(stringBytes) do
+    str = str .. string.char(byte)
+  end
+
+  return str
+end
+
+--- Save a string to the app session associated with a string key
+function session_save_string(key, str)
+  local stringBytes = string_to_bytes(str)
+  sim.writeCustomDataBlock(sim.handle_app, key, sim.packUInt8Table(stringBytes))
+end
+
 --- @export
 return {
   class = class,
@@ -236,4 +261,6 @@ return {
   string_trim = string_trim,
   is_valid_ip_address = is_valid_ip_address,
   make_ghost_model = make_ghost_model,
+  session_load_string = session_load_string,
+  session_save_string = session_save_string,
 }
