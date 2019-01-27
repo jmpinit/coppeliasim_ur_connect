@@ -84,12 +84,13 @@ def driverProg():
 
     sync()
   end
-
+  
+  kill thread_servo
+  
   # In case exit is happening because of an emergency,
   # bring the robot to a stop
   stopj(2)
-  
+
   sleep(.1)
   socket_close()
-  kill thread_servo
 end
