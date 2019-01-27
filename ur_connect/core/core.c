@@ -45,7 +45,7 @@ const int MULT_JOINTSTATE = 1000000;
 pthread_t threadServer;
 bool serverRunning = false;
 
-uint8_t activeCommand = 1;
+uint8_t activeCommand = CMD_INACTIVE;
 RobotPose currentPose = { 0 };
 pthread_mutex_t lockCurrentPose;
 RobotPose sensedPose = { 0 };
@@ -149,11 +149,6 @@ void *run_server(void *args) {
         goto server_exit;
       }
 
-      if (activeCommand == CMD_INACTIVE) {
-        usleep(1000000 / CONTROL_RATE);
-        continue;
-      }
-
       pthread_mutex_lock(&lockCurrentPose);
       buffer[0] = htonl(currentPose.base);
       buffer[1] = htonl(currentPose.shoulder);
@@ -161,8 +156,8 @@ void *run_server(void *args) {
       buffer[3] = htonl(currentPose.wrist1);
       buffer[4] = htonl(currentPose.wrist2);
       buffer[5] = htonl(currentPose.wrist3);
-      pthread_mutex_unlock(&lockCurrentPose);
       buffer[6] = htonl(activeCommand);
+      pthread_mutex_unlock(&lockCurrentPose);
 
       // Send a message to the client
       write(clientSockFd, buffer, sizeof(buffer));
@@ -189,7 +184,8 @@ void *run_server(void *args) {
       }
 
       if (activeCommand == 1) {
-        // Inactive mode
+        // The robot stops after a movej (command 1) so we should wait for an
+        // affirmative instruction that movement should be continued
         activeCommand = CMD_INACTIVE;
       }
 
@@ -239,6 +235,8 @@ static int ur_connect_core_start_server(lua_State *L) {
   serverArgs->port = port;
   strcpy(serverArgs->ip, ipAddress);
 
+  activeCommand = CMD_INACTIVE;
+
   if (pthread_create(&threadServer, NULL, run_server, serverArgs)) {
     lua_pushstring(L, "Unable to start server thread");
     lua_error(L);
@@ -263,18 +261,6 @@ static int ur_connect_core_stop_server(lua_State *L) {
   return 0;
 }
 
-static int ur_connect_core_set_command(lua_State *L) {
-  if (!lua_isnumber(L, 1)) {
-    luaL_typerror(L, 1, "number");
-    return 1;
-  }
-
-  activeCommand = lua_tonumber(L, 1);
-  lua_pop(L, 1);
-
-  return 0;
-}
-
 static int ur_connect_core_get_pose(lua_State *L) {
   if (!haveSensedPose) {
     // No value to report yet
@@ -293,16 +279,6 @@ static int ur_connect_core_get_pose(lua_State *L) {
   };
   pthread_mutex_unlock(&lockSensePose);
 
-  /*
-  // Create a new table to hold the pose values
-  lua_createtable(L, 6, 0);
-
-  for (int i = 0; i < 6; i++) {
-    lua_pushnumber(L, i + 1); // Key
-    lua_pushnumber(L, values[i]); // Value
-    lua_settable(L, -3); // Pops key and value off of stack
-  }
-  */
   for (int i = 0; i < 6; i++) {
     lua_pushnumber(L, values[i]); // Value
   }
@@ -322,17 +298,32 @@ static int ur_connect_core_update_pose(lua_State *L) {
     return 0;
   }
 
+  if (!lua_isnumber(L, 2)) {
+    luaL_typerror(L, 2, "number");
+    return 0;
+  }
+
+  int newCommand = lua_tonumber(L, 2);
+
+  // Read the joint angle table
+
   float values[6] = {0};
 
   for (int i = 0; i < 6; i++) {
     lua_pushnumber(L, i + 1); // Key
     lua_gettable(L, 1); // Pops key, pushes value
-    values[i] = lua_tonumber(L, 2);
+    values[i] = lua_tonumber(L, -1);
     lua_pop(L, 1); // Pop value
   }
 
-  // Pop table
-  lua_pop(L, 1);
+  // Pop arguments
+  lua_pop(L, 2);
+
+  #ifdef DEBUG
+  if (newCommand != activeCommand) {
+    printf("Active command changed to %d from %d\n", newCommand, activeCommand);
+  }
+  #endif
 
   pthread_mutex_lock(&lockCurrentPose);
   currentPose.base = values[0] * MULT_JOINTSTATE;
@@ -341,6 +332,7 @@ static int ur_connect_core_update_pose(lua_State *L) {
   currentPose.wrist1 = values[3] * MULT_JOINTSTATE;
   currentPose.wrist2 = values[4] * MULT_JOINTSTATE;
   currentPose.wrist3 = values[5] * MULT_JOINTSTATE;
+  activeCommand = newCommand;
   pthread_mutex_unlock(&lockCurrentPose);
 
   return 0;
@@ -367,7 +359,6 @@ static const struct luaL_Reg ur_connect_core_funcs[] = {
   { "start_server", ur_connect_core_start_server },
   { "stop_server", ur_connect_core_stop_server },
   { "get_pose", ur_connect_core_get_pose },
-  { "set_command", ur_connect_core_set_command },
   { "update_pose", ur_connect_core_update_pose },
   { "get_assigned_ips", ur_connect_core_get_assigned_ips },
   { NULL, NULL },

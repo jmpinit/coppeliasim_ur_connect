@@ -174,13 +174,14 @@ function Robot:servo_to(jointAngles, doMove)
     jointAngles.wrist3,
   }
 
-  server.update_pose(pose)
-
+  local cmd
   if doMove then
-    server.set_command(1)
+    cmd = 1
   else
-    server.set_command(2)
+    cmd = 2
   end
+
+  server.update_pose(pose, cmd)
 
   local base, shoulder, elbow, wrist1, wrist2, wrist3 = server.get_pose()
 
