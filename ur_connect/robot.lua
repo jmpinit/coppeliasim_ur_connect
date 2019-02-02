@@ -152,6 +152,50 @@ function Robot:update_ghost()
   sim.setJointPosition(ghostJoints[6], self.lastKnownJointState.wrist3)
 end
 
+function Robot:freedrive()
+  if not self.connected then
+    return
+  end
+
+  local pose
+  if lastKnownJointState == nil then
+    local jointAngles = self:get_joint_angles()
+
+    pose = {
+      jointAngles.base,
+      jointAngles.shoulder,
+      jointAngles.elbow,
+      jointAngles.wrist1,
+      jointAngles.wrist2,
+      jointAngles.wrist3,
+    }
+  else
+    pose = {
+      lastKnownJointState.base,
+      lastKnownJointState.shoulder,
+      lastKnownJointState.elbow,
+      lastKnownJointState.wrist1,
+      lastKnownJointState.wrist2,
+      lastKnownJointState.wrist3,
+    }
+  end
+
+  server.update_pose(pose, 255)
+
+  local base, shoulder, elbow, wrist1, wrist2, wrist3 = server.get_pose()
+
+  if base ~= nil then
+    self.lastKnownJointState.base = base
+    self.lastKnownJointState.shoulder = shoulder
+    self.lastKnownJointState.elbow = elbow
+    self.lastKnownJointState.wrist1 = wrist1
+    self.lastKnownJointState.wrist2 = wrist2
+    self.lastKnownJointState.wrist3 = wrist3
+
+    self:update_ghost()
+  end
+end
+
 -- Takes a hash table with angles in radians for keys
 -- base, shoulder, elbow, wrist1, wrist2, and wrist3
 -- and tells the robot to servo its joints to match the specified angles.

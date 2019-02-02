@@ -45,23 +45,31 @@ def driverProg():
 
   thread_servo = run servoThread()
   keepalive = 1
+  freedriving = False
 
   while keepalive > 0:
     params_mult = socket_read_binary_integer(6+1)
+
+    mode = params_mult[7]
     
     if params_mult[0] > 0:
-      if params_mult[7] == 0:
+      if mode == 0:
         keepalive = 0
-      elif params_mult[7] == 1:
+      elif mode == 1:
         q = [params_mult[1] / MULT_jointstate,
           params_mult[2] / MULT_jointstate,
           params_mult[3] / MULT_jointstate,
           params_mult[4] / MULT_jointstate,
           params_mult[5] / MULT_jointstate,
           params_mult[6] / MULT_jointstate]
+
+        if freedriving:
+          end_freedrive_mode()
+          freedriving = False
+        end
 
         movej(q, 1.4, 1.05, 0, 0)
-      elif params_mult[7] == 2:
+      elif mode == 2:
         q = [params_mult[1] / MULT_jointstate,
           params_mult[2] / MULT_jointstate,
           params_mult[3] / MULT_jointstate,
@@ -69,7 +77,19 @@ def driverProg():
           params_mult[5] / MULT_jointstate,
           params_mult[6] / MULT_jointstate]
 
+        if freedriving:
+          end_freedrive_mode()
+          freedriving = False
+          thread_servo = run servoThread()
+        end
+
         set_servo_setpoint(q)
+      else:
+        if not freedriving:
+          kill thread_servo
+          freedrive_mode()
+          freedriving = True
+        end
       end
 
       actual_joint_angles = get_actual_joint_positions()
@@ -84,7 +104,7 @@ def driverProg():
 
     sync()
   end
-  
+
   kill thread_servo
   
   # In case exit is happening because of an emergency,
