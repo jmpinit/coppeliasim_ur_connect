@@ -118,7 +118,7 @@ function Robot:connect()
   local existingGhostHandle = sim.getObjectHandle(sim.getObjectName(self.handle) .. '_ghost@silentError')
 
   if existingGhostHandle == -1 then
-    self.ghostHandle = util.make_ghost_model(self.handle)
+    self.ghostHandle = util.make_ghost_model(self.handle, true)
   else
     self.ghostHandle = existingGhostHandle
   end

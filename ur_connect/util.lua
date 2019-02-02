@@ -180,7 +180,7 @@ function set_color(object, r, g, b, a)
   sim.setShapeColor(object, nil, sim.colorcomponent_transparency, { a })
 end
 
-function make_ghost_model(modelBaseHandle)
+function make_ghost_model(modelBaseHandle, filterDummy)
   local ghostModelProperties = sim.modelproperty_not_collidable
     + sim.modelproperty_not_measurable
     + sim.modelproperty_not_renderable
@@ -214,7 +214,7 @@ function make_ghost_model(modelBaseHandle)
     elseif objType == sim.object_joint_type then
       -- Set the joint mode to passive so that it will maintain a pose it is set to
       sim.setJointMode(object, sim.jointmode_passive, 0)
-    elseif objType == sim.object_dummy_type then
+    elseif objType == sim.object_dummy_type and filterDummy then
       sim.removeObject(object)
     end
   end
