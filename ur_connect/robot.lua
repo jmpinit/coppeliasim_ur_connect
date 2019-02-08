@@ -102,9 +102,7 @@ function Robot:connect()
   local myIp = get_my_ip()
   server.start_server(myIp, PORT)
 
-  if self.debugMode then
-    print('Control server running at tcp://' .. myIp .. ':' .. PORT)
-  end
+  print('Control server running at tcp://' .. myIp .. ':' .. PORT)
 
   local controlScript = template.render(util.read_file(SCRIPT_CONTROL), {
     CONTROL_IP = myIp,

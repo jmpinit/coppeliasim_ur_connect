@@ -68,7 +68,9 @@ void *run_server(void *args) {
   serv_addr.sin_port = htons(serverArgs->port); // (host to network byte order)
   serv_addr.sin_addr.s_addr = inet_addr(serverArgs->ip);
 
+#ifdef DEBUG
   printf("Starting server at %s:%d\n", inet_ntoa(serv_addr.sin_addr), ntohs(serv_addr.sin_port));
+#endif
 
   int sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if (sockfd < 0) {
@@ -243,6 +245,10 @@ static int ur_connect_core_start_server(lua_State *L) {
     return 0;
   }
 
+#ifdef DEBUG
+  printf("Server thread created\n");
+#endif
+
   return 0;
 }
 
@@ -352,6 +358,10 @@ static int ur_connect_core_get_assigned_ips(lua_State *L) {
   const char* ipAddr = inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr);
   lua_pushstring(L, ipAddr);
 
+#ifdef DEBUG
+  printf("get_assigned_ips called and returned %s\n", ipAddr);
+#endif
+
   return 1;
 }
 
@@ -365,7 +375,9 @@ static const struct luaL_Reg ur_connect_core_funcs[] = {
 };
 
 static int hook_gc(lua_State *L) {
-  printf("GC hook\n");
+#ifdef DEBUG
+  printf("GC hook called\n");
+#endif
   serverRunning = false;
   pthread_join(threadServer, NULL);
   return 0;
@@ -413,7 +425,9 @@ LUALIB_API int luaopen_ur_connect_core(lua_State *L) {
   // Sets gc_hook key to userdata value on library table
   lua_settable(L, -3); // pops key and value off stack
 
+#ifdef DEBUG
   printf("Configured GC hook\n");
+#endif
   stackDump(L);
 
   return 1;
