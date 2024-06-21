@@ -1,4 +1,4 @@
-LUA=lua5.1
+LUA=lua5.3
 
 docs:
 	ldoc --fatalwarnings --project v_rep_ur_connect ur_connect

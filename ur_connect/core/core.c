@@ -217,12 +217,12 @@ server_exit_no_client:
 
 static int ur_connect_core_start_server(lua_State *L) {
   if (!lua_isstring(L, 1)) {
-    luaL_typerror(L, 1, "string");
+    lua_pushstring(L, "Bad argument 1 to 'start_server' (string expected)");
     return 0;
   }
 
   if (!lua_isnumber(L, 2)) {
-    luaL_typerror(L, 2, "number");
+    lua_pushstring(L, "Bad argument 2 to 'start_server' (number expected)");
     return 0;
   }
 
@@ -294,18 +294,18 @@ static int ur_connect_core_get_pose(lua_State *L) {
 
 static int ur_connect_core_update_pose(lua_State *L) {
   if (!lua_istable(L, 1)) {
-    luaL_typerror(L, 1, "table");
+    lua_pushstring(L, "Bad argument 1 to 'update_pose' (table expected)");
     return 0;
   }
 
-  if (lua_objlen(L, 1) != 6) {
+  if (lua_rawlen(L, 1) != 6) {
     lua_pushstring(L, "Expected 6 values");
     lua_error(L);
     return 0;
   }
 
   if (!lua_isnumber(L, 2)) {
-    luaL_typerror(L, 2, "number");
+    lua_pushstring(L, "Bad argument 2 to 'update_pose' (number expected)");
     return 0;
   }
 
@@ -411,7 +411,7 @@ static void stackDump(lua_State *L) {
 }
 
 LUALIB_API int luaopen_ur_connect_core(lua_State *L) {
-  luaL_register(L, "ur_connect_core", ur_connect_core_funcs); // pushes new table with lib functions
+  luaL_newlib(L, ur_connect_core_funcs); // pushes new table with lib functions
 
   lua_pushstring(L, "gc_hook");
   lua_newuserdata(L, 1);
@@ -420,6 +420,7 @@ LUALIB_API int luaopen_ur_connect_core(lua_State *L) {
   lua_pushstring(L, "__gc");
   lua_pushcfunction(L, hook_gc);
   lua_settable(L, -3); // Sets __gc for metatable. Pops key and value off stack
+
   lua_setmetatable(L, -2); // Sets metatable for userdata on stack. Pops table from the stack
 
   // Sets gc_hook key to userdata value on library table

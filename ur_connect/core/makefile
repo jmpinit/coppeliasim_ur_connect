@@ -1,8 +1,8 @@
 MODNAME=core
 MODSO=$(MODNAME).so
 
-LUA_CFLAGS=`pkg-config lua5.1 --cflags`
-LDFLAGS=`pkg-config lua5.1 --libs`
+LUA_CFLAGS=`pkg-config lua5.3 --cflags`
+LDFLAGS=`pkg-config lua5.3 --libs`
 INCLUDES=$(LUA_CFLAGS)
 
 CCOPT= -fomit-frame-pointer
