@@ -1,58 +1,93 @@
-# V-REP UR Connect
+# CoppeliaSim UR Connect
 
-This Lua code is meant to synchronize the state of a Universal Robots UR3, UR5, or UR10 in the V-REP
-robot simulator with a real robot.
+Control a real Universal Robots UR3, UR5, or UR10 based on the state of one
+simulated in [the CoppeliaSim robot
+simulator](https://www.coppeliarobotics.com/).
 
-Given the IP address of the robot this code will load a control program onto the robot's control
-system and then accept a connection back from the robot which is subsequently used to stream joint
-targets to the robot and receive the joint states from the robot.
+## How it Works
 
-Inside V-REP the script should be called from a threaded child script, like so:
+A script is sent to the robot which tells it to connect back to a server running
+on the host computer and listen for commands, which it will then execute to
+carry out joint moves, servo to target joint states, or freedrive.  It sends
+back the current joint state of the robot so the movement can be tracked.
+The server is implemented in C (in **core**) and exposes a Lua API to be used
+from Lua running under CoppeliaSim.
 
-```lua
-local ur_connect = require('ur_connect')
-
-function sysCall_threadmain()
-  -- The scene contains a UR5 robot model named 'UR5'
-  local robot = ur_connect.Robot(sim.getObjectHandle('UR5'), theRobotsIPAddress)
-
-  -- Connecting causes the script to load the control program onto the robot system and accept
-  -- a connection back from the robot for control
-  robot:connect()
-
-  while sim.getSimulationState() ~= sim.simulation_advancing_abouttostop do
-    -- Servoing updates the joint targets for the real robot, causing it to move
-    -- This should ideally be called very quickly (>100 Hz) at regular intervals, and match the
-    -- tuning parameters in the servoj call of the robot control script
-    robot:servo_to(robot:get_joint_angles())
-  end
-
-  -- Cleans up the network resources
-  robot:disconnect()
-end
-```
+The Lua code in CoppeliaSim makes it easy to set up the sim and real robot
+twins. A transparent "ghost" robot is created to display the current state of
+the real robot in CoppeliaSim.
 
 ## Installation
 
-The **ur_connect** directory is the Lua module for connecting V-REP to a UR robot. Lua modules are
-installed in V-REP by putting them in the same directory as the main application binary. On macOS
-that's **/Applications/V-REP_version_and_stuff/vrep.app/Contents/MacOS**. Copy the **ur_connect**
-directory there.
+This project has only been tested on macOS. It was most recently tested with
+CoppeliaSim 4.6.0 (rev 10).
 
-The module uses the [BitOp library](http://bitop.luajit.org/) so that will need to be installed too.
-Make sure to compile it for Lua 5.1 because that's the version of Lua used by V-REP. To compile
-BitOp do the following (on macOS):
+### Installing Lua 5.3
 
-0. Install [Homebrew](https://brew.sh/).
-1. Install Lua 5.1 with `brew install lua@5.1`.
-2. Download [LuaBitOp-1.0.2.zip](http://bitop.luajit.org/download/LuaBitOp-1.0.2.zip) and unzip.
-3. Compile with:
-  a. `gcc -I/usr/local/include/lua5.1 -dynamiclib -single_module -undefined dynamic_lookup -o bit.o bit.c`
-  b. `gcc -shared -fPIC -I/usr/local/include/lua5.1 -llua5.1 -o bit.so bit.o`
-4. Copy the resulting **bit.so** to the aforementioned V-REP directory.
+This version of CoppeliaSim uses lua 5.3, so I installed that package from
+homebrew with `brew install lua@5.3`.
 
-## Documentation
+Make sure that pkgconfig can find your lua installation. You might have to do
+something like this (homebrew may tell you this if you have another lua
+installation):
 
-Generate by running `make docs`. [LDoc](http://stevedonovan.github.io/ldoc/) must be installed.
+```bash
+export PKG_CONFIG_PATH="/opt/homebrew/opt/lua@5.3/lib/pkgconfig"
+```
 
-Run tests with `make test`.
+### Building the Server
+
+Build the server by going into **ur_connect/core** and running `make`. If it's
+successful then you will have a **core.so** file one directory up, at
+**ur_connect/core.so**.
+
+### Installing the Server
+
+Now you can symlink the **ur_connect** directory to these two locations:
+- **/Applications/coppeliaSim.app/Contents/Resources/luarocks/lib/lua/5.3/ur_connect**
+- **/Applications/coppeliaSim.app/Contents/Resources/luarocks/share/lua/5.3/ur_connect**
+
+Now if you start CoppeliaSim and try `require('ur_connect/robot')` in the Lua
+sandbox at the bottom you should see a table printed and no errors.
+
+## Use
+
+Inside the CoppeliaSim scene the script should be called from a threaded child
+script attached to the UR5 object. Here's an example:
+
+```lua
+local Robot = require('ur_connect/robot')
+
+function sysCall_init()
+    sim = require('sim')
+    sim.setStepping(true)
+end
+
+function sysCall_thread()
+    -- We should be attached to a UR5
+    -- Replace the first IP with that of your machine
+    -- and the second one with the IP configured for your robot
+    local robot = Robot(sim.getObject('.'), '172.31.1.1', '172.31.1.3')
+
+    -- Connecting causes the script to load the control program onto the robot
+    -- system and accept a connection back from the robot for control
+    robot:connect()
+
+    while true do
+        while not sim.getSimulationStopping() do
+            robot:servo_to(robot:get_joint_angles())
+            print(robot:get_joint_angles())
+            sim.step() -- resume in next simulation step
+        end
+        
+        sim.step()
+    end
+
+    print('Disconnecting the robot')
+
+    -- Cleans up the network resources
+    robot:disconnect()
+end
+```
+
+If you want to freedrive the robot you can invoke `robot:freedrive()`.
