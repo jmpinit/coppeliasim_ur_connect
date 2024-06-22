@@ -1,11 +1,60 @@
 --- Emulate the control script loaded onto the Universal Robots robot
 
+--[[
+Requires the LuaBitOp library:
+
+1. Download [LuaBitOp-1.0.2.zip](http://bitop.luajit.org/download/LuaBitOp-1.0.2.zip) and unzip.
+2. Compile with:
+  a. `gcc -c -I/opt/homebrew/opt/lua@5.3/include/lua5.3 -fPIC bit.c -o bit.o`
+  b. `gcc -shared -fPIC -o bit.so bit.o -L/Applications/coppeliaSim.app/Contents/Frameworks -llua.5.3`
+3. Copy the resulting **bit.so** to /Applications/coppeliaSim.app/Contents/Resources/luarocks/lib/lua/5.3
+--]]
+local bit = require('bit')
+
 local socket = require('socket')
 local util = require('ur_connect/util')
 
 local MULT_JOINTSTATE = 1000000
 local NET_TIMEOUT = 3
 local SCRIPT_PORT = 30002
+
+--- Split a 32 bit int into bytes.
+-- @return A table of bytes in big-endian order.
+function int32_to_bytes(v)
+  if (v < 0) then
+    v = math.ceil(v)
+
+    -- Two's complement
+    v = 0xffffffff + v
+  else
+    v = math.floor(v)
+  end
+
+  local bytes = {
+    bit.band(bit.rshift(v, 24), 0xff),
+    bit.band(bit.rshift(v, 16), 0xff),
+    bit.band(bit.rshift(v, 8), 0xff),
+    bit.band(v, 0xff),
+  }
+
+  return bytes
+end
+
+--- Combine 4 bytes into a 32 bit int value.
+function bytes_to_int32(b3, b2, b1, b0)
+  assert(is_byte(b3))
+  assert(is_byte(b2))
+  assert(is_byte(b1))
+  assert(is_byte(b0))
+
+  local val = bit.bor(bit.lshift(b3, 24), bit.lshift(b2, 16), bit.lshift(b1, 8), b0)
+
+  if val < 0 then
+    val = val + 1
+  end
+
+  return val
+end
 
 function die(msg)
   error(msg)
@@ -64,7 +113,7 @@ function emulate_robot(ip, port)
       local b1 = data[i * 4 + 3]
       local b0 = data[i * 4 + 4]
 
-      local value = util.bytes_to_int32(b3, b2, b1, b0)
+      local value = bytes_to_int32(b3, b2, b1, b0)
       table.insert(pose, value / MULT_JOINTSTATE)
 
       msg = msg .. pose[i + 1] .. ', '
@@ -74,7 +123,7 @@ function emulate_robot(ip, port)
 
     local reply = ''
     for i = 1, 6 do
-      local value = util.int32_to_bytes(pose[i] * MULT_JOINTSTATE)
+      local value = int32_to_bytes(pose[i] * MULT_JOINTSTATE)
       reply = reply .. util.bytes_to_string(value)
     end
     reply = reply .. string.char(13)
