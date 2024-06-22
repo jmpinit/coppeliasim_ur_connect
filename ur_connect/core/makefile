@@ -1,14 +1,10 @@
 MODNAME=core
-MODSO=$(MODNAME).so
+MODSO=../$(MODNAME).so
 
 LUA_CFLAGS=`pkg-config lua5.3 --cflags`
-LDFLAGS=`pkg-config lua5.3 --libs`
-INCLUDES=$(LUA_CFLAGS)
+LDFLAGS=-L/Applications/coppeliaSim.app/Contents/Frameworks -llua.5.3
 
-CCOPT= -fomit-frame-pointer
 CCWARN= -Wall
-SOCFLAGS= -g -fPIC $(CCOPT) $(CCWARN) $(INCLUDES) $(CFLAGS)
-SOLDFLAGS= -fPIC $(LDFLAGS)
 
 all: $(MODSO)
 
@@ -16,13 +12,14 @@ install: $(MODSO)
 	cp $(MODSO) ..
 
 clean:
-	rm *.so *.o
+	rm -f $(MODNAME).o
+	rm -f $(MODSO)
 
 $(MODNAME).o: $(MODNAME).c
-	$(CC) $(SOCFLAGS) -c -o $@ $<
+	$(CC) -c $(LUA_CFLAGS) -fPIC -o $@ $<
 
 $(MODSO): $(MODNAME).o
-	$(CC) -shared $(SOLDFLAGS) -o $@ $<
+	$(CC) -shared -fPIC -o $@ $< $(LDFLAGS)
 
 .PHONY: all install clean
 
