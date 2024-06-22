@@ -10,15 +10,14 @@ local server = require('ur_connect.core')
 local SCRIPT_PORT = 30002 -- The robot executes scripts sent to this port
 local PORT = 9031 -- The port the robot will connect to
 local NET_TIMEOUT = 1
-local MULT_jointstate = 1000000
-local SCRIPT_CONTROL = 'ur_connect/urscript/control.urscript'
+local SCRIPT_PATH = 'urscript/control.urscript'
 
 local Robot = util.class()
 
---- Construct a new Robot.
-function Robot:_init(handle, ip)
+function Robot:_init(handle, bindIp, robotIp)
   self.handle = handle
-  self.ip = ip
+  self.bindIp = bindIp
+  self.robotIp = robotIp
   self.port = SCRIPT_PORT
   self.lastKnownJointState = {
     base = 0,
@@ -35,9 +34,9 @@ end
 function Robot:host_up()
   local client = socket.tcp()
   client:settimeout(NET_TIMEOUT)
-  local success = client:connect(self.ip, self.port)
+  local success = client:connect(self.robotIp, self.port)
 
-  print('Connecting to ' .. self.ip .. ':' .. self.port)
+  print('Connecting to ' .. self.robotIp .. ':' .. self.port)
 
   if success == nil then
     return false
@@ -54,7 +53,7 @@ function Robot:run_script(script)
 
   local client = socket.tcp()
   client:settimeout(NET_TIMEOUT)
-  local success = client:connect(self.ip, self.port)
+  local success = client:connect(self.robotIp, self.port)
 
   if not success then
     error('Failed to open connection')
@@ -66,32 +65,6 @@ function Robot:run_script(script)
   client:close()
 end
 
-function ip_same_subnet(ip, ips)
-  local targetParts = util.string_split(ip, '.')
-  local sameSubnetIps = {}
-
-  for i, otherIp in ipairs(ips) do
-    local inSameSubnet = true
-    local otherParts = util.string_split(otherIp, '.')
-
-    for j = 1, 3 do
-      if otherParts[j] ~= targetParts[j] then
-        inSameSubnet = false
-      end
-    end
-
-    if inSameSubnet then
-      table.insert(sameSubnetIps, otherIp)
-    end
-  end
-
-  return sameSubnetIps
-end
-
-function get_my_ip()
-  return server.get_assigned_ips()
-end
-
 function Robot:connect()
   if not self:host_up() then
     error('Robot not online at specified address')
@@ -99,23 +72,28 @@ function Robot:connect()
     print('Host is up!')
   end
 
-  local myIp = get_my_ip()
-  server.start_server(myIp, PORT)
+  server.start_server(self.bindIp, PORT)
 
-  print('Control server running at tcp://' .. myIp .. ':' .. PORT)
+  print('Control server running at tcp://' .. self.bindIp .. ':' .. PORT)
 
-  local controlScript = template.render(util.read_file(SCRIPT_CONTROL), {
-    CONTROL_IP = myIp,
+  local luaDir = sim.getStringParam(sim.stringparam_luadir)
+  local resourceDir = luaDir:match('^(.+)/[^/]+$')
+  local packageDir = resourceDir .. '/luarocks/share/lua/5.3/ur_connect'
+  local scriptPath = packageDir .. '/' .. SCRIPT_PATH
+
+  local controlScript = template.render(util.read_file(scriptPath), {
+    CONTROL_IP = self.bindIp,
     CONTROL_PORT = PORT,
   })
-  print('Instructing the robot to connect to ' .. myIp .. ':' .. PORT)
+  print('Instructing the robot to connect to ' .. self.bindIp .. ':' .. PORT)
   self:run_script(controlScript)
 
   self.connected = true
 
-  local existingGhostHandle = sim.getObjectHandle(sim.getObjectName(self.handle) .. '_ghost@silentError')
+  local ghostPath = '/' .. sim.getObjectName(self.handle) .. '_ghost'
+  local ok, existingGhostHandle = pcall(function () return sim.getObject(ghostPath) end)
 
-  if existingGhostHandle == -1 then
+  if not ok then
     self.ghostHandle = util.make_ghost_model(self.handle, true)
   else
     self.ghostHandle = existingGhostHandle
@@ -156,25 +134,27 @@ function Robot:freedrive()
   end
 
   local pose
-  if lastKnownJointState == nil then
+  if self.lastKnownJointState == nil then
     local jointAngles = self:get_joint_angles()
 
+    -- The CoppeliaSim UR5 model has the shoulder and wrist1 joints rotated 90
+    -- degrees relative to the real robot, so we compensate for that here
     pose = {
       jointAngles.base,
-      jointAngles.shoulder,
+      jointAngles.shoulder - math.pi / 2,
       jointAngles.elbow,
-      jointAngles.wrist1,
+      jointAngles.wrist1 - math.pi / 2,
       jointAngles.wrist2,
       jointAngles.wrist3,
     }
   else
     pose = {
-      lastKnownJointState.base,
-      lastKnownJointState.shoulder,
-      lastKnownJointState.elbow,
-      lastKnownJointState.wrist1,
-      lastKnownJointState.wrist2,
-      lastKnownJointState.wrist3,
+      self.lastKnownJointState.base,
+      self.lastKnownJointState.shoulder,
+      self.lastKnownJointState.elbow,
+      self.lastKnownJointState.wrist1,
+      self.lastKnownJointState.wrist2,
+      self.lastKnownJointState.wrist3,
     }
   end
 
@@ -183,10 +163,12 @@ function Robot:freedrive()
   local base, shoulder, elbow, wrist1, wrist2, wrist3 = server.get_pose()
 
   if base ~= nil then
+    -- The CoppeliaSim UR5 model has the shoulder and wrist1 joints rotated 90
+    -- degrees relative to the real robot, so we compensate for that here
     self.lastKnownJointState.base = base
-    self.lastKnownJointState.shoulder = shoulder
+    self.lastKnownJointState.shoulder = shoulder + math.pi / 2
     self.lastKnownJointState.elbow = elbow
-    self.lastKnownJointState.wrist1 = wrist1
+    self.lastKnownJointState.wrist1 = wrist1 + math.pi / 2
     self.lastKnownJointState.wrist2 = wrist2
     self.lastKnownJointState.wrist3 = wrist3
 
@@ -194,10 +176,10 @@ function Robot:freedrive()
   end
 end
 
--- Takes a hash table with angles in radians for keys
+-- Takes a table with angles in radians for keys
 -- base, shoulder, elbow, wrist1, wrist2, and wrist3
 -- and tells the robot to servo its joints to match the specified angles.
--- Defaults to the joint angles of the robot in the V-REP scene if none specified.
+-- Defaults to the joint angles of the robot in the scene if none specified.
 function Robot:servo_to(jointAngles, doMove)
   if not self.connected then
     return
@@ -208,10 +190,12 @@ function Robot:servo_to(jointAngles, doMove)
   end
 
   local pose = {
+    -- The CoppeliaSim UR5 model has the shoulder and wrist1 joints rotated 90
+    -- degrees relative to the real robot, so we compensate for that here
     jointAngles.base,
-    jointAngles.shoulder,
+    jointAngles.shoulder - math.pi / 2,
     jointAngles.elbow,
-    jointAngles.wrist1,
+    jointAngles.wrist1 - math.pi / 2,
     jointAngles.wrist2,
     jointAngles.wrist3,
   }
@@ -228,10 +212,12 @@ function Robot:servo_to(jointAngles, doMove)
   local base, shoulder, elbow, wrist1, wrist2, wrist3 = server.get_pose()
 
   if base ~= nil then
+    -- The CoppeliaSim UR5 model has the shoulder and wrist1 joints rotated 90
+    -- degrees relative to the real robot, so we compensate for that here
     self.lastKnownJointState.base = base
-    self.lastKnownJointState.shoulder = shoulder
+    self.lastKnownJointState.shoulder = shoulder + math.pi / 2
     self.lastKnownJointState.elbow = elbow
-    self.lastKnownJointState.wrist1 = wrist1
+    self.lastKnownJointState.wrist1 = wrist1 + math.pi / 2
     self.lastKnownJointState.wrist2 = wrist2
     self.lastKnownJointState.wrist3 = wrist3
 

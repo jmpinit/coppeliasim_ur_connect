@@ -185,31 +185,27 @@ function make_ghost_model(modelBaseHandle, filterDummy)
     + sim.modelproperty_not_measurable
     + sim.modelproperty_not_renderable
     + sim.modelproperty_not_detectable
-    + sim.modelproperty_not_cuttable
     + sim.modelproperty_not_dynamic
     + sim.modelproperty_not_respondable
     + sim.modelproperty_scripts_inactive
 
-  local copiedModel = sim.copyPasteObjects({ modelBaseHandle }, 1)[1]
+  -- Copy the model but strip scripts
+  local objsToCopy = sim.getObjectsInTree(modelBaseHandle)
+  local copiedModel = sim.copyPasteObjects(objsToCopy, 2)[1]
   value_or_error(sim.setModelProperty(copiedModel, ghostModelProperties))
 
   local objectsInModel = sim.getObjectsInTree(copiedModel)
   for i, object in ipairs(objectsInModel) do
     value_or_error(sim.setModelProperty(object, ghostModelProperties))
 
-    local modelName = string.sub(sim.getObjectName(object), 0, -3) -- remove "#0"
-    local ghostName =  modelName .. '_ghost'
-    sim.setObjectName(object, ghostName)
+    local originalName = sim.getObjectName(modelBaseHandle)
+    local ghostName =  originalName .. '_ghost'
+    sim.setObjectAlias(object, ghostName)
 
     local objType = sim.getObjectType(object)
 
-    -- Remove any scripts from the original object that might act on the ghost
-    local script = sim.getScriptAssociatedWithObject(object)
-    if script ~= -1 and script ~= nil then
-      sim.removeScript(script)
-    end
-
     if objType == sim.object_shape_type then
+      -- Make the shape transparent
       set_color(object, 1, 1, 1, 0.3)
     elseif objType == sim.object_joint_type then
       -- Set the joint mode to passive so that it will maintain a pose it is set to
