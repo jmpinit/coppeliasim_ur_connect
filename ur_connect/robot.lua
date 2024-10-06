@@ -100,32 +100,80 @@ function Robot:connect()
   end
 end
 
-function Robot:get_joint_angles()
-  local joints = sim.getObjectsInTree(self.handle, sim.object_joint_type)
+--- Return true if we have a connection to the real robot.
+function Robot:is_connected()
+  return self.connected
+end
+
+--- Return the joint angles of a UR5 model in the scene.
+local get_joints_from_ur5 = function(objHandle)
+  local sceneJoints = sim.getObjectsInTree(objHandle, sim.object_joint_type)
 
   return {
-    base = sim.getJointPosition(joints[1]),
-    shoulder = sim.getJointPosition(joints[2]),
-    elbow = sim.getJointPosition(joints[3]),
-    wrist1 = sim.getJointPosition(joints[4]),
-    wrist2 = sim.getJointPosition(joints[5]),
-    wrist3 = sim.getJointPosition(joints[6]),
+    base = sim.getJointPosition(sceneJoints[1]),
+    shoulder = sim.getJointPosition(sceneJoints[2]),
+    elbow = sim.getJointPosition(sceneJoints[3]),
+    wrist1 = sim.getJointPosition(sceneJoints[4]),
+    wrist2 = sim.getJointPosition(sceneJoints[5]),
+    wrist3 = sim.getJointPosition(sceneJoints[6]),
   }
 end
 
+--- Return the joint angles of the robot model in the scene.
+function Robot:get_virtual_joint_angles()
+  return get_joints_from_ur5(self.handle)
+end
+
+local apply_joints_to_ur5 = function(objHandle, jointState)
+  local sceneJoints = sim.getObjectsInTree(objHandle, sim.object_joint_type)
+
+  sim.setJointPosition(sceneJoints[1], jointState.base)
+  sim.setJointPosition(sceneJoints[2], jointState.shoulder)
+  sim.setJointPosition(sceneJoints[3], jointState.elbow)
+  sim.setJointPosition(sceneJoints[4], jointState.wrist1)
+  sim.setJointPosition(sceneJoints[5], jointState.wrist2)
+  sim.setJointPosition(sceneJoints[6], jointState.wrist3)
+end
+
+--- Move the ghost to the last known pose of the real robot.
 function Robot:update_ghost()
   if self.ghostHandle == nil or self.lastKnownJointState == nil then
     return
   end
 
-  local ghostJoints = sim.getObjectsInTree(self.ghostHandle, sim.object_joint_type)
+  apply_joints_to_ur5(self.ghostHandle, self.lastKnownJointState)
+end
 
-  sim.setJointPosition(ghostJoints[1], self.lastKnownJointState.base)
-  sim.setJointPosition(ghostJoints[2], self.lastKnownJointState.shoulder)
-  sim.setJointPosition(ghostJoints[3], self.lastKnownJointState.elbow)
-  sim.setJointPosition(ghostJoints[4], self.lastKnownJointState.wrist1)
-  sim.setJointPosition(ghostJoints[5], self.lastKnownJointState.wrist2)
-  sim.setJointPosition(ghostJoints[6], self.lastKnownJointState.wrist3)
+--- Return the joint state from the real robot and store it in the last known joint state.
+function Robot:get_real_joint_angles()
+  if not self.connected then
+    return
+  end
+
+  local base, shoulder, elbow, wrist1, wrist2, wrist3 = server.get_pose()
+
+  if base ~= nil then
+    -- The CoppeliaSim UR5 model has the shoulder and wrist1 joints rotated 90
+    -- degrees relative to the real robot, so we compensate for that here
+    self.lastKnownJointState.base = base
+    self.lastKnownJointState.shoulder = shoulder + math.pi / 2
+    self.lastKnownJointState.elbow = elbow
+    self.lastKnownJointState.wrist1 = wrist1 + math.pi / 2
+    self.lastKnownJointState.wrist2 = wrist2
+    self.lastKnownJointState.wrist3 = wrist3
+    return self.lastKnownJointState
+  end
+
+  return nil
+end
+
+--- Retrieve the joint state from the real robot and use it to update the ghost model.
+function Robot:apply_real_pose()
+  local angles = self:get_real_joint_angles()
+
+  if angles ~= nil then
+    self:update_ghost()
+  end
 end
 
 function Robot:freedrive()
@@ -135,7 +183,7 @@ function Robot:freedrive()
 
   local pose
   if self.lastKnownJointState == nil then
-    local jointAngles = self:get_joint_angles()
+    local jointAngles = self:get_virtual_joint_angles()
 
     -- The CoppeliaSim UR5 model has the shoulder and wrist1 joints rotated 90
     -- degrees relative to the real robot, so we compensate for that here
@@ -160,20 +208,7 @@ function Robot:freedrive()
 
   server.update_pose(pose, 255)
 
-  local base, shoulder, elbow, wrist1, wrist2, wrist3 = server.get_pose()
-
-  if base ~= nil then
-    -- The CoppeliaSim UR5 model has the shoulder and wrist1 joints rotated 90
-    -- degrees relative to the real robot, so we compensate for that here
-    self.lastKnownJointState.base = base
-    self.lastKnownJointState.shoulder = shoulder + math.pi / 2
-    self.lastKnownJointState.elbow = elbow
-    self.lastKnownJointState.wrist1 = wrist1 + math.pi / 2
-    self.lastKnownJointState.wrist2 = wrist2
-    self.lastKnownJointState.wrist3 = wrist3
-
-    self:update_ghost()
-  end
+  self:apply_real_pose()
 end
 
 -- Takes a table with angles in radians for keys
@@ -186,7 +221,7 @@ function Robot:servo_to(jointAngles, doMove)
   end
 
   if jointAngles == nil then
-    jointAngles = self:get_joint_angles()
+    jointAngles = self:get_virtual_joint_angles()
   end
 
   local pose = {
@@ -209,22 +244,10 @@ function Robot:servo_to(jointAngles, doMove)
 
   server.update_pose(pose, cmd)
 
-  local base, shoulder, elbow, wrist1, wrist2, wrist3 = server.get_pose()
-
-  if base ~= nil then
-    -- The CoppeliaSim UR5 model has the shoulder and wrist1 joints rotated 90
-    -- degrees relative to the real robot, so we compensate for that here
-    self.lastKnownJointState.base = base
-    self.lastKnownJointState.shoulder = shoulder + math.pi / 2
-    self.lastKnownJointState.elbow = elbow
-    self.lastKnownJointState.wrist1 = wrist1 + math.pi / 2
-    self.lastKnownJointState.wrist2 = wrist2
-    self.lastKnownJointState.wrist3 = wrist3
-
-    self:update_ghost()
-  end
+  self:apply_real_pose()
 end
 
+--- Disconnect from the real robot and stop the control server thread.
 function Robot:disconnect()
   if not self.connected then
     return
@@ -235,4 +258,8 @@ function Robot:disconnect()
   self.connected = false
 end
 
-return Robot
+return {
+  Robot=Robot,
+  get_joints_from_ur5=get_joints_from_ur5,
+  apply_joints_to_ur5=apply_joints_to_ur5,
+}
